@@ -8,7 +8,7 @@ wmbatteries_SOURCES =   \
 	backdrop_on.xpm \
 	parts.xpm
 
-CPPFLAGS = @CPPFLAGS@ @DFLAGS@
+CPPFLAGS = @CPPFLAGS@ @DFLAGS@ -Wall
 
 INCLUDES = @HEADER_SEARCH_PATH@
 

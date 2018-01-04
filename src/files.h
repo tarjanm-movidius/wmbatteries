@@ -9,6 +9,8 @@
  *    and on work by Mark Staggs <me@markstaggs.net>
  *    Copyright (C) 2002  Mark Staggs <me@markstaggs.net>
 
+ *    Bugfixes and sysfs operation by Marcell Tarjan <tarjan.marcell@gmail.com>
+
  *    This program is free software; you can redistribute it and/or modify
  *    it under the terms of the GNU General Public License as published by
  *    the Free Software Foundation; either version 2 of the License, or
@@ -21,13 +23,11 @@
 
  *    You should have received a copy of the GNU General Public License
  *    along with this program; if not, write to the Free Software
- *    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  */
 
-#define THERMAL_FILE "/proc/acpi/thermal_zone/THM0/temperature"
-#define BAT0_STATE_FILE "/proc/acpi/battery/BAT0/state"
-#define BAT1_STATE_FILE "/proc/acpi/battery/BAT1/state"
-#define BAT0_INFO_FILE "/proc/acpi/battery/BAT0/info"
-#define BAT1_INFO_FILE "/proc/acpi/battery/BAT1/info"
-#define AC_STATE_FILE "/proc/acpi/ac_adapter/AC/state"
+#define THERMAL_FILE "/sys/devices/virtual/thermal/thermal_zone0/temp"
+#define BAT0_UEVENT_FILE "/sys/class/power_supply/BAT0/uevent"
+#define BAT1_UEVENT_FILE "/sys/class/power_supply/BAT1/uevent"
+#define AC_STATE_FILE "/sys/class/power_supply/AC0/online"
