@@ -138,6 +138,7 @@ dockapp_open_window(char *display_specified, char *appname,
     depth = DefaultDepth(display, DefaultScreen(display));
     gc = DefaultGC(display, DefaultScreen(display));
 
+    XFree(title.value);
     XFlush(display);
 }
 

@@ -190,7 +190,6 @@ int main(int argc, char **argv) {
   }
 
   /* Initialize Application */
-
   init_stats(&cur_acpi_infos);
   //acpi_read(&cur_acpi_infos);
   //update();
@@ -327,6 +326,7 @@ void init_stats(AcpiInfos *k) {
   number_of_batteries=0;
   for(i=0; i<2; i++) {
     if((fd = fopen(uevent_files[i], "r"))) {
+      bzero(buf, MAXSTRLEN);
       if (fread(buf, 1, MAXSTRLEN, fd)) {
         if ((ptr = strstr(buf,"POWER_SUPPLY_PRESENT="))) {
           if(ptr[21] == '1') {
@@ -360,6 +360,7 @@ void init_stats(AcpiInfos *k) {
       DPRINTF("D: File not found: '%s'\n", uevent_files[i])
     }
   }
+  free(buf);
 
   if(bat_status[0]!=BAT_OK && bat_status[1]==BAT_OK) {
     strcpy(uevent_files[0], uevent_files[1]);
@@ -375,8 +376,7 @@ void init_stats(AcpiInfos *k) {
   if (number_of_batteries == 2) {
     if ((k->ratehist[1] = (long*)malloc(history_size * sizeof(long))) == NULL) exit(-1);
     for (i=0; i<history_size; i++) k->ratehist[1][i] = k->rate[1];
-  }
-  free(buf);
+  } else k->ratehist[1] = NULL;
   k->ac_line_status = 0;
   k->battery_status[0] = 0;
   k->battery_percentage[0] = 0;
@@ -565,6 +565,7 @@ static void parse_config_file(char *config) {
     }
     fclose(fd);
   }
+  free(buf);
 }
 
 
