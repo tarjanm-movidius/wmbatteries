@@ -23,10 +23,8 @@
  * modified by Seiichi SATO <ssato@sh.rim.or.jp>
  */
 
+#include "defaults.h"
 #include "dockapp.h"
-
-#define WINDOWED_SIZE_W 64
-#define WINDOWED_SIZE_H 64
 
 /* global */
 Display	*display = NULL;
@@ -36,7 +34,7 @@ Bool	dockapp_isbrokenwm = False;
 /* private */
 static Window	window = None;
 static Window	icon_window = None;
-static GC	gc = NULL;
+GC	gc = NULL;
 static int	depth = 0;
 static Atom	delete_win;
 static int	width, height;
@@ -246,14 +244,14 @@ dockapp_setshape(Pixmap mask, int x_ofs, int y_ofs)
     XFlush(display);
 }
 
-
+/*
 void
 dockapp_copyarea(Pixmap src, Pixmap dist, int x_src, int y_src, int w, int h,
 		 int x_dist, int y_dist)
 {
     XCopyArea(display, src, dist, gc, x_src, y_src, w, h, x_dist, y_dist);
 }
-
+*/
 
 void
 dockapp_copy2window (Pixmap src)
@@ -280,8 +278,16 @@ dockapp_nextevent_or_timeout(XEvent *event, unsigned long miliseconds)
 	return True;
     }
 
+#if CAPS_NUM_UPD_SPD > 0
+    timeout.tv_sec = 0;
+    if (miliseconds<CAPS_NUM_UPD_SPD)
+	timeout.tv_usec = miliseconds * 1000;
+    else
+	timeout.tv_usec = CAPS_NUM_UPD_SPD * 1000;
+#else
     timeout.tv_sec = miliseconds / 1000;
     timeout.tv_usec = (miliseconds % 1000) * 1000;
+#endif
 
     FD_ZERO(&rset);
     FD_SET(ConnectionNumber(display), &rset);

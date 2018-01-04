@@ -16,11 +16,11 @@ bat1_uevent	=	/sys/class/power_supply/BAT1/uevent
 #ac_state		=	<string> // name of ac_adapter state file
 ac_state		=	/sys/class/power_supply/AC0/online
 
-#togglespeed	= 	<integer> // in seconds
-togglespeed	=   	5
+#togglespeed	= 	<integer> // in ms >=100
+togglespeed	=   	2000
 
 #animationspeed =	<integer> // in ms >=100
-animationspeed	= 	150
+animationspeed	= 	500
 
 #historysize	=	<integer> // >=1 <=1000
 history_size	=	20
@@ -31,11 +31,11 @@ mode			= 	toggle
 #backlight	=	[yes|no|true|false]
 backlight		=	no
 
-#updateinterval =	<integer> // interval in seconds
-updateinterval	=	2
+#updateinterval =	<integer> // in ms >=100
+updateinterval	=	5000
 
 #alarm		=	<integer> // alarm level in percent
-alarm		= 	10
+alarm		= 	15
 
 #alarm_blink	=	[yes|no|true|false]
 alarm_blink	=	yes

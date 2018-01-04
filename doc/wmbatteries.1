@@ -41,7 +41,7 @@ The two battery symbols in the middle are shown when the corresponding
 battery is discharging, and animated if it is charging.
 The animation speed may be set with the -s option.
 On the right there is an indicator which is displayed when the remaining capacity
-of all batteries is less than a certain (default:20) percentage of the
+of all batteries is less than a certain (default:15) percentage of the
 maximum capacity of all batteries.
 
 The last line may be used to display either CPU temperature or the current power consumption.
@@ -74,14 +74,14 @@ turn on back-light
 back-light color (rgb:6E/C6/3B is default)
 .TP
 .B \-i,  \-\-interval <number>
-number of secs between updates (1 is default)
+update interval in msec (=5000)
 .TP
 .B \-c,  \-\-config <string>
 config file to use, otherwise $HOME/.wmbatteriesrc or /etc/wmbatteries will
 be used
 .TP
 .B \-a,  \-\-alarm <number>
-low battery level when to raise alarm (20 is default)
+low battery level when to raise alarm (15 is default)
 .TP
 .B \-h,  \-\-help
 show help text and exit
@@ -105,11 +105,11 @@ set command for acpi suspend
 set command for acpi standby
 .TP
 .B \-m,  \-\-mode [t|r|s]
-set mode for the lower row ,
-t=temperature,r=current rate,s=toggle
+set mode for the lower row (=s),
+t=temperature, r=current rate, s=toggle
 .TP
 .B \-ts,  \-\-togglespeed <integer>
-set togglespeed in seconds
+set togglespeed in Msec
 .TP
 .B \-as,  \-\-animationspeed <integer>
 set speed for charging animation in msec

@@ -73,6 +73,7 @@
 /* We are in trouble. */
 #endif
 
+extern GC	gc;
 extern Display *display;
 extern Bool dockapp_iswindowed;
 extern Bool dockapp_isbrokenwm;
@@ -88,8 +89,13 @@ Bool dockapp_xpm2pixmap(char **data, Pixmap * pixmap, Pixmap * mask,
 			unsigned int nsymbols);
 Pixmap dockapp_XCreatePixmap(int w, int h);
 void dockapp_setshape(Pixmap mask, int x_ofs, int y_ofs);
+/*
 void dockapp_copyarea(Pixmap src, Pixmap dist, int x_src, int y_src,
 		      int w, int h, int x_dist, int y_dist);
+*/
+#define dockapp_copyarea(src_, dist_, x_src_, y_src_, w_, h_, x_dist_, y_dist_) XCopyArea(display, src_, dist_, gc, x_src_, y_src_, w_, h_, x_dist_, y_dist_)
+
+
 void dockapp_copy2window(Pixmap src);
 Bool dockapp_nextevent_or_timeout(XEvent * event, unsigned long miliseconds);
 unsigned long dockapp_getcolor(char *color);

@@ -2,8 +2,8 @@ dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.52)
 
 dnl AC_INIT(src/main.c)
-dnl AM_INIT_AUTOMAKE(wmbatteries, 0.1.4)
-AC_INIT(wmbatteries, 0.1.4, florian.krohs@informatik.uni-oldenburg.de)
+dnl AM_INIT_AUTOMAKE(wmbatteries, 0.1.5)
+AC_INIT(wmbatteries, 0.1.5, florian.krohs@informatik.uni-oldenburg.de)
 AC_CANONICAL_HOST
 AC_CANONICAL_TARGET
 AM_INIT_AUTOMAKE($PACKAGE_NAME, $PACKAGE_VERSION)

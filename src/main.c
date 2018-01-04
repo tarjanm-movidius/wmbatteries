@@ -32,8 +32,9 @@
 #endif
 
 #include "files.h"
-#include <signal.h>
+#include "defaults.h"
 #include "dockapp.h"
+#include <signal.h>
 #include "backlight_on.xpm"
 #include "backlight_off.xpm"
 #include "parts.xpm"
@@ -43,28 +44,12 @@
 
 #ifdef linux
 # include <sys/stat.h>
+# include <X11/XKBlib.h>
 #endif
 
-#define WMBATTERIES_VERSION "0.1.4"
-
-#define FREE(data) {if (data) free (data); data = NULL;}
-
-#define RATE_HISTORY 10
-#define BLINK_ONLOADING_TIMEOUT 500
-#define SIZE      58
-#define MAXSTRLEN   512
-#define WINDOWED_BG ". c #AEAAAE"
-#define MAX_HISTORY 16
-#define CPUNUM_NONE -1
-
-#define CHARGING 3
+#define CHARGING    3
 #define DISCHARGING 1
-#define UNKNOWN 0
-
-#define TOGGLEMODE 1
-#define TOGGLESPEED 2
-
-#define DEFAULT_UPDATE_INTERVAL 5
+#define UNKNOWN     0
 
 #define RATE 0
 #define TEMP 1
@@ -74,10 +59,14 @@
 #define INFO_OK  2
 #define BAT_OK   3
 
+#define SIZE      58
+#define MAXSTRLEN 512
+
 #ifdef DEBUG
-# define DEBUGSTRING(STRING) printf("DEBUG: %s\n",STRING);
+# define DDOT() { printf("."); fflush(stdout); }
+# define DPRINTF(...) { printf(__VA_ARGS__); fflush(stdout); }
 #else
-# define DEBUGSTRING(STRING)
+# define DPRINTF(...)
 #endif
 
 typedef struct AcpiInfos {
@@ -86,6 +75,7 @@ typedef struct AcpiInfos {
   int         battery_status[2];
   int         battery_percentage[2];
   long        rate[2];
+  long        *ratehist[2];
   long        remain[2];
   long        currcap[2];
   int         thermal_temp;
@@ -94,11 +84,6 @@ typedef struct AcpiInfos {
   int         minutes_left;
   int         low;
 } AcpiInfos;
-
-typedef struct RateListElem {
-  long                rate[2];
-  struct RateListElem *next;
-} RateListElem;
 
 typedef enum { LIGHTOFF, LIGHTON } light;
 
@@ -112,27 +97,25 @@ static char     *display_name     = "";
 static char     light_color[256]  = "";   /* back-light color */
 char            tmp_string[256];
 static char     *config_file      = NULL; /* name of configfile */
-static unsigned update_interval   = DEFAULT_UPDATE_INTERVAL;
+static unsigned update_interval   = UPDATE_INTERVAL;
 static light    backlight         = LIGHTOFF;
-static unsigned switch_authorized = True;
-static unsigned alarm_level       = 15;
-static unsigned alarm_level_temp  = 750;
+static unsigned alarm_blink       = ALARM_BLINK;
+static unsigned alarm_level       = ALARM_LEVEL;
+static unsigned alarm_level_temp  = ALARM_TEMP*10;
 static char     *notif_cmd        = NULL;
 static char     *suspend_cmd      = NULL;
 static char     *standby_cmd      = NULL;
-static int      mode              = TEMP;
+static int      mode              = STATMODE;
 static int      togglemode        = TOGGLEMODE;
 static int      togglespeed       = TOGGLESPEED;
-static int      animationspeed    = 500;
+static int      animationspeed    = ANIMATION_SPEED;
 static AcpiInfos cur_acpi_infos;
-static int  number_of_batteries   = 2;
-static char uevent_files[2][256]  = {BAT0_UEVENT_FILE,BAT1_UEVENT_FILE};
+static int      number_of_batteries = 2;
+static char     uevent_files[2][256] = {BAT0_UEVENT_FILE,BAT1_UEVENT_FILE};
 static char     thermal[256]      = THERMAL_FILE;
 static char     ac_state[256]     = AC_STATE_FILE;
 static int      history_size      = RATE_HISTORY;
-
-static RateListElem *rateElements;
-static RateListElem *firstRateElem;
+static int      blink_pos         = 0;
 
 #ifdef linux
 # ifndef ACPI_32_BIT_SUPPORT
@@ -140,11 +123,13 @@ static RateListElem *firstRateElem;
 # endif
 #endif
 
-
 /* prototypes */
 static void parse_config_file(char *config);
-static void update();
+static int update();
 static void switch_light();
+#ifdef CAPS_NUM_UPD_SPD
+static void draw_locks();
+#endif
 static void draw_remaining_time(AcpiInfos infos);
 static void draw_batt(AcpiInfos infos);
 static void draw_low();
@@ -154,7 +139,6 @@ static void draw_statusdigit(AcpiInfos infos);
 static void draw_pcgraph(AcpiInfos infos);
 static void parse_arguments(int argc, char **argv);
 static void print_help(char *prog);
-static void acpi_getinfos(AcpiInfos *infos);
 static int  acpi_exists();
 static int  my_system (char *cmd);
 static void blink_batt();
@@ -165,18 +149,17 @@ int acpi_read(AcpiInfos *i);
 void init_stats(AcpiInfos *k);
 #endif
 
-int count;
-int blink_pos=0;
-
 
 int main(int argc, char **argv) {
 
   XEvent    event;
   XpmColorSymbol  colors[2] = { {"Back0", NULL, 0}, {"Back1", NULL, 0} };
-  int      ncolor = 0;
+  int       ncolor = 0;
+  static unsigned cns_oldstate;
+  unsigned  cns_state = 0;
   struct    sigaction sa;
   long      timeout;
-  int      charging;
+  int       charging;
 
   sa.sa_handler = SIG_IGN;
 #ifdef SA_NOCLDWAIT
@@ -186,9 +169,9 @@ int main(int argc, char **argv) {
 #endif
 
   printf("wmbatteries %s  (c) Florian Krohs\n"
-      "<florian.krohs@informatik.uni-oldenburg.de>\n\n"
-      "This Software comes with absolutely no warranty.\n"
-      "Use at your own risk!\n\n",WMBATTERIES_VERSION);
+         "<florian.krohs@informatik.uni-oldenburg.de>\n"
+         "This Software comes with absolutely no warranty.\n"
+         "Use at your own risk!\n\n", VERSION);
 
   sigemptyset(&sa.sa_mask);
   sigaction(SIGCHLD, &sa, NULL);
@@ -203,16 +186,16 @@ int main(int argc, char **argv) {
 #else
     fprintf(stderr, "Unable to access ACPI info\n");
 #endif
-//    exit(1);
+    exit(1);
   }
 
   /* Initialize Application */
 
   init_stats(&cur_acpi_infos);
-  //acpi_getinfos(&cur_acpi_infos);
+  //acpi_read(&cur_acpi_infos);
   //update();
   dockapp_open_window(display_name, PACKAGE, SIZE, SIZE, argc, argv);
-  dockapp_set_eventmask(ButtonPressMask);
+  dockapp_set_eventmask(ButtonPressMask|KeymapStateMask);
 
   if (strcmp(light_color,"")) {
     colors[0].pixel = dockapp_getcolor(light_color);
@@ -253,9 +236,9 @@ int main(int argc, char **argv) {
   dockapp_set_background(pixmap);
   update();
   dockapp_show();
-  long update_timeout = update_interval*1000;
+  long update_timeout = update_interval;
   long animation_timeout = animationspeed;
-  long toggle_timeout = togglespeed*1000;
+  long toggle_timeout = togglespeed;
   int show = 0;
   /* Main loop */
   while (1) {
@@ -263,64 +246,68 @@ int main(int argc, char **argv) {
       charging = 1;
     else
       charging = 0;
-    timeout = update_timeout;
-    if( charging && animation_timeout<update_timeout) {
-      if(animation_timeout<toggle_timeout)
-        timeout = animation_timeout;
-      else if(togglemode)
-        timeout = toggle_timeout;
-    } else if(update_timeout<toggle_timeout)
+#if CAPS_NUM_UPD_SPD > 0
+    timeout = CAPS_NUM_UPD_SPD;
+    if (update_timeout<timeout)
+#endif
       timeout = update_timeout;
-    else if(togglemode) timeout = toggle_timeout;
+    if (charging && animation_timeout<timeout) timeout = animation_timeout;
+    if (togglemode && toggle_timeout<timeout)  timeout = toggle_timeout;
+
     if (dockapp_nextevent_or_timeout(&event, timeout)) {
       /* Next Event */
       switch (event.type) {
       case ButtonPress:
         switch (event.xbutton.button) {
         case 1: switch_light(); break;
-        case 3: mode=!mode; draw_all(); dockapp_copy2window(pixmap); break;
+        case 3: mode=!mode; show=1; break;
+        case 4: /* scroll up */ break;
+        case 5: /* scroll dn */ break;
         default: break;
         }
+        break;
+      case KeymapNotify:
+        draw_all();
+        dockapp_copy2window(pixmap);
         break;
       default: break;
       }
     } else {
       /* Time Out */
       update_timeout -= timeout;
-      animation_timeout -= timeout;
-      toggle_timeout -= timeout;
-      if(toggle_timeout<=0) {
-        toggle_timeout = togglespeed*1000;
-        if(togglemode) {
+      if(togglemode) {
+        toggle_timeout -= timeout;
+        if(toggle_timeout<5) {
+          toggle_timeout += togglespeed;
           mode=!mode;
           show = 1;
         }
       }
-      if(animation_timeout<=0) {
-        animation_timeout = animationspeed;
-        if(charging) {
+      if(charging) {
+        animation_timeout -= timeout;
+        if(animation_timeout<5) {
+          animation_timeout += animationspeed;
           blink_batt();
-          show = 1;
+          dockapp_copy2window(pixmap);
         }
       }
-      if(update_timeout<=0) {
-        update();
+      if(update_timeout<5) {
+        update_timeout += update_interval;
+        if (update()) show = 1;
+      }
+      XkbGetIndicatorState(display, XkbUseCoreKbd, &cns_state);
+      if(cns_state != cns_oldstate) {
+        cns_oldstate = cns_state;
         show = 1;
-        update_timeout = update_interval*1000;
       }
       if(show) {
         /* show */
         draw_all();
-        if(charging) {
-          blink_pos--;
-          blink_batt();
-        }
         dockapp_copy2window(pixmap);
         show = 0;
       }
     }
   }
-
   return 0;
 }
 
@@ -330,40 +317,47 @@ void init_stats(AcpiInfos *k) {
   FILE *fd;
   char *buf;
   char *ptr;
-  long hist;
+  long tmp;
   int i;
 
-  buf=(char *)malloc(sizeof(char)*512);
+  buf=(char *)malloc(sizeof(char)*MAXSTRLEN);
   if(buf == NULL)
     exit(-1);
   /* get info about existing batteries */
   number_of_batteries=0;
   for(i=0; i<2; i++) {
     if((fd = fopen(uevent_files[i], "r"))) {
-      if (fread(buf, 1, 512, fd)) {
+      if (fread(buf, 1, MAXSTRLEN, fd)) {
         if ((ptr = strstr(buf,"POWER_SUPPLY_PRESENT="))) {
           if(ptr[21] == '1') {
             bat_status[i] = BAT_OK;
           }
+        } else {
+          DPRINTF("POWER_SUPPLY_PRESENT not found in '%s'\n", uevent_files[i])
         }
         if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL="))) {
           sscanf(ptr+25, "%ld", &k->currcap[i]);
           if(bat_status[i]==BAT_OK) {
             if((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL_DESIGN="))) {
-              sscanf(ptr+32, "%ld", &hist);
-              printf("BAT%d OK, %0.1f%% performance\n", i, (float)k->currcap[i] * 100.0f / (float)hist);
+              sscanf(ptr+32, "%ld", &tmp);
+              printf("BAT%d OK, %0.1f%% performance\n", i, (float)k->currcap[i] * 100.0f / (float)tmp);
+            } else {
+              DPRINTF("POWER_SUPPLY_ENERGY_FULL_DESIGN not found in '%s'\n", uevent_files[i])
             }
             number_of_batteries++;
           }
+        } else {
+          DPRINTF("POWER_SUPPLY_ENERGY_FULL not found in '%s'\n", uevent_files[i])
         }
         if ((ptr = strstr(buf,"POWER_SUPPLY_POWER_NOW="))) {
           sscanf(ptr+23, "%ld", &k->rate[i]);
+        } else {
+          DPRINTF("POWER_SUPPLY_POWER_NOW not found in '%s'\n", uevent_files[i])
         }
       }
       fclose(fd);
     } else {
-      DEBUGSTRING("File not found:")
-      DEBUGSTRING(uevent_files[i])
+      DPRINTF("D: File not found: '%s'\n", uevent_files[i])
     }
   }
 
@@ -373,22 +367,14 @@ void init_stats(AcpiInfos *k) {
     k->rate[0] = k->rate[1];
   }
 
-  printf("%i batter%s found in system\n", number_of_batteries, number_of_batteries==1 ? "y" : "ies");
+  DPRINTF("D: %i batter%s found in system\n", number_of_batteries, number_of_batteries==1 ? "y" : "ies");
 
-  // initialize buffer
-  if ((rateElements = (RateListElem *) malloc(history_size * sizeof(RateListElem))) == NULL)
-    exit(-1);
-
-  firstRateElem = rateElements;
-
-  for(i=0;i<2;i++) {
-    /* link rateElements */
-    for(hist=0;hist<(history_size-1);hist++) {
-      (*(rateElements+hist)).next = rateElements+hist+1;
-      (*(rateElements+hist)).rate[i] = k->rate[i];
-    }
-    (*(rateElements+history_size-1)).next = rateElements;
-    (*(rateElements+history_size-1)).rate[i] = k->rate[i];
+  // initialising history buffer
+  if ((k->ratehist[0] = (long*)malloc(history_size * sizeof(long))) == NULL) exit(-1);
+  for (i=0; i<history_size; i++) k->ratehist[0][i] = k->rate[0];
+  if (number_of_batteries == 2) {
+    if ((k->ratehist[1] = (long*)malloc(history_size * sizeof(long))) == NULL) exit(-1);
+    for (i=0; i<history_size; i++) k->ratehist[1][i] = k->rate[1];
   }
   free(buf);
   k->ac_line_status = 0;
@@ -400,39 +386,39 @@ void init_stats(AcpiInfos *k) {
   k->remain[1] = 0;
   k->thermal_temp = 0;
   k->thermal_state = 0;
-  DEBUGSTRING("end of init_stats()");
 }
 
 
 /* called by timer */
-static void update() {
+static int update() {
   static light pre_backlight;
   static Bool in_alarm_mode = False;
+  int ret;
 
   /* get current battery usage in percent */
-  acpi_getinfos(&cur_acpi_infos);
+  ret = acpi_read(&cur_acpi_infos);
 
   /* alarm mode */
   if (cur_acpi_infos.low || (cur_acpi_infos.thermal_temp > alarm_level_temp)) {
     if (!in_alarm_mode) {
-      in_alarm_mode = True;
       pre_backlight = backlight;
       my_system(notif_cmd);
     }
-    if ((switch_authorized) || ((!switch_authorized) && (backlight!=pre_backlight))) {
+    if (alarm_blink || !in_alarm_mode) {
       switch_light();
-      return;
+      in_alarm_mode = True;
+      return 0;
     }
   } else {
     if (in_alarm_mode) {
       in_alarm_mode = False;
       if (backlight != pre_backlight) {
         switch_light();
-        return;
+        return 0;
       }
     }
   }
-  draw_all();
+  return ret;
 }
 
 
@@ -440,53 +426,41 @@ static void parse_config_file(char *config) {
 
   FILE *fd=NULL;
   char *buf;
-  char stringbuffer[256];
-  char line[256] ;
   char *item;
   char *value;
   extern int errno;
   int linenr=0;
   int tmp;
-  buf=(char *)malloc(sizeof(char)*512);
+  buf=(char *)malloc(sizeof(char)*MAXSTRLEN);
   if(buf == NULL)
     exit(-1);
-  if(config != NULL) { //config file by command line
-    DEBUGSTRING("using command line given config file name");
-    DEBUGSTRING(config);
+  if(config != NULL) {
     if((fd = fopen(config, "r"))) {
-      DEBUGSTRING("config file found\n");
+      DPRINTF("D: using command line given config file '%s'\n", config)
     } else {
-      DEBUGSTRING("config file NOT found\n");
-      DEBUGSTRING("falling back to default config file\n");
+      printf("Config file '%s' NOT found\n", config);
     }
   }
-  if(fd==NULL) { // no config file found yet
-    strcpy(stringbuffer,getenv("HOME"));
-    strcat(stringbuffer,"/.wmbatteriesrc");
-    DEBUGSTRING("trying config file in your $HOME dir\n");
-    DEBUGSTRING(stringbuffer);
-    if((fd = fopen(stringbuffer, "r"))) {
-      DEBUGSTRING("config file found\n");
+  if(fd==NULL) {
+    strcpy(buf, getenv("HOME"));
+    strcat(buf, "/.wmbatteriesrc");
+    if((fd = fopen(buf, "r"))) {
+      DPRINTF("D: using config file '%s'\n", buf)
     } else {
-      DEBUGSTRING("config file in $HOME dir nonexistant\n");
-      DEBUGSTRING("trying global one in /etc\n");
       if((fd = fopen("/etc/wmbatteries", "r"))) {
-        DEBUGSTRING("config file found\n");
+        DPRINTF("D: using config file '/etc/wmbatteries'\n")
       } else {
-        DEBUGSTRING("no config file found. ignoring\n");
+        DPRINTF("D: no config file found. Using defaults\n")
       }
     }
   }
 
   if(fd!=NULL) { // some config file was found, try parsing
-    DEBUGSTRING("begin parsing\n");
-    while( fgets( line, 255, fd ) != NULL )
-    {
+    while( fgets( buf, 255, fd ) != NULL ) {
 
-      item = strtok( line, "\t =\n\r" ) ;
-      if( item != NULL && item[0] != '#' )
-      {
-        value = strtok( NULL, "\t =\n\r" ) ;
+      item = strtok( buf, "\t =\n\r" ) ;
+      if( item != NULL && item[0] != '#' ) {
+        value = strtok( NULL, "\t =\n\r" );
         if(!strcmp(item,"backlight")) {
           if(strcasecmp(value,"yes") && strcasecmp(value,"true") && strcasecmp(value,"false") && strcasecmp(value,"no")) {
             printf("backlight option wrong in line %i,use yes/no or true/false\n",linenr);
@@ -495,6 +469,18 @@ static void parse_config_file(char *config) {
               backlight = LIGHTON;
             } else {
               backlight = LIGHTOFF;
+            }
+          }
+        }
+
+        if(!strcmp(item,"alarm_blink")) {
+          if(strcasecmp(value,"yes") && strcasecmp(value,"true") && strcasecmp(value,"false") && strcasecmp(value,"no")) {
+            printf("alarm_blink option wrong in line %i,use yes/no or true/false\n",linenr);
+          } else {
+            if(!strcasecmp(value,"true") || !strcasecmp(value,"yes")) {
+              alarm_blink = True;
+            } else {
+              alarm_blink = False;
             }
           }
         }
@@ -521,8 +507,8 @@ static void parse_config_file(char *config) {
 
         if(!strcmp(item,"updateinterval")) {
           tmp=atoi(value);
-          if(tmp<1) {
-            printf("update interval is out of range in line %i,must be > 0\n",linenr);
+          if(tmp<100) {
+            printf("update interval is out of range in line %i,must be >= 100\n",linenr);
           } else {
             update_interval=tmp;
           }
@@ -530,8 +516,8 @@ static void parse_config_file(char *config) {
 
         if(!strcmp(item,"alarm")) {
           tmp=atoi(value);
-          if(tmp<1 || tmp>100) {
-            printf("alarm is out of range in line %i,must be > 0 and <= 100\n",linenr);
+          if(tmp<1 || tmp>125) {
+            printf("alarm is out of range in line %i,must be > 0 and <= 125\n",linenr);
           } else {
             alarm_level=tmp;
           }
@@ -539,8 +525,8 @@ static void parse_config_file(char *config) {
 
         if(!strcmp(item,"togglespeed")) {
           tmp=atoi(value);
-          if(tmp<1) {
-            printf("togglespeed variable is out of range in line %i,must be > 0\n",linenr);
+          if(tmp<100) {
+            printf("togglespeed variable is out of range in line %i,must be >= 100\n",linenr);
           } else {
             togglespeed=tmp;
           }
@@ -578,9 +564,25 @@ static void parse_config_file(char *config) {
       linenr++;
     }
     fclose(fd);
-    DEBUGSTRING("end parsing\n");
   }
 }
+
+
+#ifdef CAPS_NUM_UPD_SPD
+static void draw_locks() {
+/*
+  Returns the turned on leds:
+   Bit 0 is Capslock
+   Bit 1 is Numlock
+   Bit 2 is Scrollock
+*/
+  unsigned int states;
+
+  XkbGetIndicatorState(display, XkbUseCoreKbd, &states);
+  if(states & 0x1) dockapp_copyarea(parts, pixmap, 0, 58, 7, 5, 49, 46);  // CAPS
+  if(states & 0x2) dockapp_copyarea(parts, pixmap, 0, 58, 7, 5, 49, 51);  // NUM
+}
+#endif
 
 
 static void draw_all() {
@@ -593,6 +595,9 @@ static void draw_all() {
 
   /* draw digit */
   draw_remaining_time(cur_acpi_infos);
+#ifdef CAPS_NUM_UPD_SPD
+  draw_locks();
+#endif
   if(mode==RATE) draw_rate(cur_acpi_infos);
   else if(mode==TEMP) draw_temp(cur_acpi_infos);
   draw_statusdigit(cur_acpi_infos);
@@ -605,7 +610,6 @@ static void draw_all() {
 
 
 /* called when mouse button pressed */
-
 static void switch_light() {
   switch (backlight) {
   case LIGHTOFF:
@@ -619,6 +623,9 @@ static void switch_light() {
   }
 
   draw_remaining_time(cur_acpi_infos);
+#ifdef CAPS_NUM_UPD_SPD
+  draw_locks();
+#endif
   if(mode==RATE) draw_rate(cur_acpi_infos);
   else if(mode==TEMP) draw_temp(cur_acpi_infos);
   draw_statusdigit(cur_acpi_infos);
@@ -634,13 +641,32 @@ static void switch_light() {
 }
 
 
+static void blink_batt() {
+  int light_offset=0;
+  int bat=0;
+  if (backlight == LIGHTON) {
+    light_offset=50;
+  }
+  if (++blink_pos>=5) blink_pos=0;
+  for(bat=0;bat<number_of_batteries;bat++) {
+    if(cur_acpi_infos.battery_status[bat]==CHARGING) {
+      dockapp_copyarea(parts, pixmap, blink_pos*9+light_offset , 117, 9, 5,  16+bat*11, 39);
+    }
+  }
+}
+
+
 static void draw_batt(AcpiInfos infos) {
-  int y = 0;
-  int i=0;
-  if (backlight == LIGHTON) y = 28;
-  for(i=0;i<number_of_batteries;i++) {
-    if(infos.battery_status[i]==DISCHARGING) {
-      dockapp_copyarea(parts, pixmap,33+y , 63, 9, 5, 16+i*11, 39);
+  int light_offset=0;
+  int bat=0;
+  if (backlight == LIGHTON) {
+    light_offset=50;
+  }
+  for(bat=0;bat<number_of_batteries;bat++) {
+    if(cur_acpi_infos.battery_status[bat]==CHARGING) {
+      dockapp_copyarea(parts, pixmap, blink_pos*9+light_offset, 117, 9, 5,  16+bat*11, 39);
+    } else {
+      dockapp_copyarea(parts, pixmap, light_offset, 117, 9, 5,  16+bat*11, 39);
     }
   }
 }
@@ -682,27 +708,11 @@ static void draw_temp(AcpiInfos infos) {
   if (temp > 999) dockapp_copyarea(parts, pixmap, (temp/1000)*5 + light_offset, 40, 5, 9, 10, 46);
   dockapp_copyarea(parts, pixmap, ((temp/100) % 10)*5 + light_offset, 40, 5, 9, 16, 46);
   dockapp_copyarea(parts, pixmap, ((temp/10) % 10)*5 + light_offset, 40, 5, 9, 22, 46);
-
-  dockapp_copyarea(parts, pixmap, 9 + light_offset, 49, 2, 3, 28, 53);  //.
+  dockapp_copyarea(parts, pixmap, 0, 58, 2, 3, 28, 53);  //.
   dockapp_copyarea(parts, pixmap, (temp%10)*5 + light_offset, 40, 5, 9, 31, 46);
   dockapp_copyarea(parts, pixmap, 10 + light_offset, 49, 5, 9, 37, 46);  //o
   dockapp_copyarea(parts, pixmap, 15 + light_offset, 49, 5, 9, 43, 46);  //C
 
-}
-
-
-static void blink_batt() {
-  int light_offset=0;
-  int bat=0;
-  if (backlight == LIGHTON) {
-    light_offset=50;
-  }
-  blink_pos=(blink_pos+1)%5;
-  for(bat=0;bat<number_of_batteries;bat++) {
-    if(cur_acpi_infos.battery_status[bat]==CHARGING) {
-      dockapp_copyarea(parts, pixmap, blink_pos*9+light_offset , 117, 9, 5,  16+bat*11, 39);
-    }
-  }
 }
 
 
@@ -794,13 +804,13 @@ static void parse_arguments(int argc, char **argv) {
     } else if (!strcmp(argv[i], "--interval") || !strcmp(argv[i], "-i")) {
       if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
       if (sscanf(argv[i + 1], "%i", &integer) != 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
-      if (integer < 1) { fprintf(stderr, "%s: argument %s must be >=1\n", argv[0], argv[i]); exit(1); }
+      if (integer < 100) { fprintf(stderr, "%s: argument %s must be >=100\n", argv[0], argv[i]); exit(1); }
       update_interval = integer;
       i++;
     } else if (!strcmp(argv[i], "--alarm") || !strcmp(argv[i], "-a")) {
       if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
       if (sscanf(argv[i + 1], "%i", &integer) != 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
-      if ( (integer < 0) || (integer > 100) ) { fprintf(stderr, "%s: argument %s must be >=0 and <=100\n", argv[0], argv[i]); exit(1); }
+      if ( (integer < 0) || (integer > 125) ) { fprintf(stderr, "%s: argument %s must be >=0 and <=125\n", argv[0], argv[i]); exit(1); }
       alarm_level = integer;
       i++;
     } else if (!strcmp(argv[i], "--windowed") || !strcmp(argv[i], "-w")) {
@@ -816,7 +826,7 @@ static void parse_arguments(int argc, char **argv) {
     } else if (!strcmp(argv[i], "--togglespeed") || !strcmp(argv[i], "-ts")) {
       if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
       if (sscanf(argv[i + 1], "%i", &integer) != 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
-      if (integer < 1) { fprintf(stderr, "%s: argument %s must be positive integer\n", argv[0], argv[i]); exit(1); }
+      if (integer < 100) { fprintf(stderr, "%s: argument %s must be >=100\n", argv[0], argv[i]); exit(1); }
       togglespeed=integer;
       i++;
     } else if (!strcmp(argv[i], "--animationspeed") || !strcmp(argv[i], "-as")) {
@@ -852,17 +862,15 @@ static void parse_arguments(int argc, char **argv) {
 }
 
 
-static void print_help(char *prog)
-{
-  printf("Usage : %s [OPTIONS]\n"
+static void print_help(char *prog) {
+  printf("Usage: %s [OPTIONS]\n"
    "%s - Window Maker mails monitor dockapp\n"
    "  -d,  --display <string>        display to use\n"
-   "  -bl, --backlight               turn on back-light\n"
-   "  -lc, --light-color <string>    back-light color(rgb:6E/C6/3B is default)\n"
+   "  -bl, --backlight               turn on backlight\n"
+   "  -lc, --light-color <string>    backlight colour (rgb:6E/C6/3B is default)\n"
    "  -c,  --config <string>         set filename of config file\n"
-   "  -i,  --interval <number>       number of secs between updates (1 is default)\n"
-   "  -a,  --alarm <number>          low battery level when to raise alarm\n"
-   "                                 (20 is default)\n"
+   "  -i,  --interval <number>       update interval in msec (=%u)\n"
+   "  -a,  --alarm <number>          low battery level when to raise alarm (=%u)\n"
    "  -h,  --help                    show this help text and exit\n"
    "  -v,  --version                 show program version and exit\n"
    "  -w,  --windowed                run the application in windowed mode\n"
@@ -870,33 +878,13 @@ static void print_help(char *prog)
    "  -n,  --notify <string>         command to launch when alarm is on\n"
    "  -s,  --suspend <string>        set command for acpi suspend\n"
    "  -S,  --standby <string>        set command for acpi standby\n"
-   "  -m,  --mode [t|r|s]            set mode for the lower row , \n"
-   "                                 t=temperature,r=current rate,s=toggle\n"
-   "  -ts  --togglespeed <int>       set toggle speed in seconds\n"
-   "  -as  --animationspeed <int>    set speed for charging animation in msec\n"
+   "  -m,  --mode [t|r|s]            set mode for the lower row (=%c), \n"
+   "                                 t=temperature, r=current rate, s=toggle\n"
+   "  -ts  --togglespeed <int>       set toggle speed in msec (=%u)\n"
+   "  -as  --animationspeed <int>    set speed for charging animation in msec (=%u)\n"
    "  -hs  --historysize <int>       set size of history for calculating\n"
-   "                                 average power consumption rate\n",
-   prog, prog);
-  /* OPTIONS SUPP :
-   *  ? -f, --file    : configuration file
-   */
-}
-
-
-static void acpi_getinfos(AcpiInfos *infos) {
-  DEBUGSTRING("acpi_getinfos\n")
-  if (
-#if defined(linux) || defined(solaris)
-      (acpi_read(infos))
-#else
-# ifdef freebsd
-      (acpi_read(&temp_info))
-# endif
-#endif
-      ) {
-    fprintf(stderr, "Cannot read ACPI information\n");
-    exit(1);
-  }
+   "                                 average power consumption rate (=%u)\n",
+   prog, prog, UPDATE_INTERVAL, ALARM_LEVEL, TOGGLEMODE?'s':(STATMODE?'t':'r'), TOGGLESPEED, ANIMATION_SPEED, RATE_HISTORY);
 }
 
 
@@ -935,125 +923,143 @@ static int my_system (char *cmd) {
 #ifdef linux
 
 int acpi_read(AcpiInfos *i) {
-  FILE        *fd;
-  int         retcode = 0;
-  int bat;
-  char   *buf;
-  char   *ptr;
-  buf=(char *)malloc(sizeof(char)*512);
-  RateListElem currRateElement;
-  int hist;
-  long rate;
-  long temptmp;
-  float time;
-  long allcapacity=0;
-  long allremain=0;
+  FILE      *fd;
+  static int rhptr = 0;
+  int       ret = 0;
+  int       bat;
+  char      *buf;
+  char      *ptr;
+  int       hist;
+  long      tmp;
+  float     time;
+  long      allcapacity=0;
+  long      allremain=0;
 
-  rate = 0;
-
-
-  DEBUGSTRING("acpi_read()\n")
+  buf=(char *)malloc(sizeof(char)*MAXSTRLEN);
 
   /* get acpi thermal cpu info */
   if ((fd = fopen(thermal, "r"))) {
-    if (fscanf(fd, "%ld", &temptmp))
-    {
-      i->thermal_temp = temptmp / 100;
+    if (fscanf(fd, "%ld", &tmp)) {
+      tmp /= 100;
+      if (i->thermal_temp != tmp) {
+        i->thermal_temp = tmp;
+        ret = 1;
+      }
+    } else {
+      DPRINTF("fscanf(%s) error\n", thermal)
     }
     fclose(fd);
+  } else {
+    DPRINTF("fopen(%s) error\n", thermal)
   }
 
   /* get ac power state */
   if ((fd = fopen(ac_state, "r"))) {
-    if (fread(buf,1,1,fd))
-    {
-      if(buf[0] == '1') i->ac_line_status=1;
-        else i->ac_line_status=0;
+    if (fread(buf,1,1,fd)) {
+      buf[0] -= '0';
+      if(buf[0] != i->ac_line_status) {
+        i->ac_line_status = buf[0];
+        ret = 1;
+      }
+    } else {
+      DPRINTF("fread(%s) error\n", ac_state)
     }
     fclose(fd);
+  } else {
+    DPRINTF("fopen(%s) error\n", ac_state)
   }
 
   /* get battery statuses */
   for(bat=0;bat<number_of_batteries;bat++) {
-
+    i->ratehist[bat][rhptr] = 0;
     if ((fd = fopen(uevent_files[bat], "r"))) {
-      bzero(buf, 512);
-      if (fread(buf, 1, 512, fd)) {
+      bzero(buf, MAXSTRLEN);
+      if (fread(buf, 1, MAXSTRLEN, fd)) {
         if ((ptr = strstr(buf,"POWER_SUPPLY_STATUS"))) {
-          switch (ptr[20])
-          {
-          case 'D':
-            i->battery_status[bat]=DISCHARGING;
-            break;
-          case 'C':
-            i->battery_status[bat]=CHARGING;
-            break;
-          default:
-            i->battery_status[bat]=UNKNOWN;
-            break;
+          switch (ptr[20]) {
+            case 'D': tmp=DISCHARGING; break;
+            case 'C': tmp=CHARGING; break;
+            default: tmp=UNKNOWN; break;
           }
+          if (i->battery_status[bat] != tmp) {
+            i->battery_status[bat] = tmp;
+            ret = 1;
+          }
+        } else {
+          DPRINTF("POWER_SUPPLY_STATUS not found\n")
         }
-        if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_NOW"))) {
-          sscanf(ptr+24, "%ld", &i->remain[bat]);
+        if ((ptr = strstr(ptr,"POWER_SUPPLY_POWER_NOW"))) {
+          sscanf(ptr+23, "%ld", &i->ratehist[bat][rhptr]);
+        } else {
+          DPRINTF("POWER_SUPPLY_POWER_NOW not found (order?)\n")
         }
-        if ((ptr = strstr(buf,"POWER_SUPPLY_POWER_NOW"))) {
-          sscanf(ptr+23, "%ld", &((*firstRateElem).rate[bat]));
+        if ((ptr = strstr(ptr,"POWER_SUPPLY_ENERGY_NOW"))) {
+          sscanf(ptr+24, "%ld", &tmp);
+          if (i->remain[bat] != tmp) {
+            i->remain[bat] = tmp;
+            ret = 1;
+          }
+        } else {
+          DPRINTF("POWER_SUPPLY_ENERGY_NOW not found (order?)\n")
         }
+      } else {
+        DPRINTF("fread(%s) error\n", uevent_files[bat])
       }
       fclose(fd);
-    }
-
-    i->battery_percentage[bat] = (((float)(i->remain[bat])*100.0f)/(float)cur_acpi_infos.currcap[bat]);
-
-    currRateElement = *firstRateElem;
-    if(currRateElement.rate[bat]!=0) {
-      for(hist=0;hist<history_size;hist++) {
-        if(currRateElement.rate[bat]!=0)
-          rate += currRateElement.rate[bat];
-        else
-          rate += (*firstRateElem).rate[bat];
-        currRateElement = *currRateElement.next;
-      }
+      i->battery_percentage[bat] = (((float)(i->remain[bat])*100.0f)/(float)cur_acpi_infos.currcap[bat]);
     } else {
-      rate=0;
-      i->rate[bat]=0;
+      DPRINTF("fopen(%s) error\n", uevent_files[bat])
     }
 
     /* calc average */
-    rate = rate / history_size;
-    i->rate[bat] = rate;
-  }
+    tmp = 0;
+    if (i->ratehist[bat][rhptr] != 0) {
+      for(hist=0; hist<history_size; hist++) {
+        if (i->ratehist[bat][hist] > 0)
+          tmp += i->ratehist[bat][hist];
+        else
+          tmp += i->ratehist[bat][rhptr];
+      }
+      tmp /= history_size;
+    }
+    if (i->rate[bat] != tmp) {
+      i->rate[bat] = tmp;
+      ret = 1;
+    }
 
-  if((i->battery_status[0]==1 || i->battery_status[1]==1) && (i->rate[0]+i->rate[1])>0) {
-    time = (float)(i->remain[0]+i->remain[1])/(float)(i->rate[0]+i->rate[1]);
-    i->hours_left=(int)time;
-    i->minutes_left=(int)((time-(int)time)*60);
   }
-  if(i->battery_status[0]==0 && i->battery_status[1]==0) {
-    i->hours_left=0;
-    i->minutes_left=0;
-  }
-  if((i->battery_status[0]==3||i->battery_status[1]==3) && (i->rate[0]>0 || i->rate[1]>0)) {
-    time = (float)(cur_acpi_infos.currcap[0] - i->remain[0] + cur_acpi_infos.currcap[1] - i->remain[1])/(float)(i->rate[0]+i->rate[1]);
-    i->hours_left=(int)time;
-    i->minutes_left=(int)(60*(time-(int)time));
-  }
-  for(bat=0;bat<number_of_batteries;bat++) {
-    allremain += i->remain[bat];
-    allcapacity += cur_acpi_infos.currcap[bat];
-  }
+  if (++rhptr >= history_size) rhptr = 0;
 
-  cur_acpi_infos.low=0;
-  if(allcapacity>0) {
-    if(((double)allremain/(double)allcapacity)*100<alarm_level) {
-      cur_acpi_infos.low=1;
+  if (ret) {
+    /* calc remaining time (only if something has changed) */
+    if((i->battery_status[0] == DISCHARGING || i->battery_status[1] == DISCHARGING) && (i->rate[0] + i->rate[1]) > 0) {
+      time = (float)(i->remain[0]+i->remain[1])/(float)(i->rate[0]+i->rate[1]);
+      i->hours_left=(int)time;
+      i->minutes_left=(int)((time-(int)time)*60);
+    }
+    if(i->battery_status[0]==0 && i->battery_status[1]==0) {
+      i->hours_left=0;
+      i->minutes_left=0;
+    }
+    if((i->battery_status[0] == CHARGING || i->battery_status[1] == CHARGING) && (i->rate[0]>0 || i->rate[1]>0)) {
+      time = (float)(cur_acpi_infos.currcap[0] - i->remain[0] + cur_acpi_infos.currcap[1] - i->remain[1])/(float)(i->rate[0]+i->rate[1]);
+      i->hours_left=(int)time;
+      i->minutes_left=(int)(60*(time-(int)time));
+    }
+    for(bat=0;bat<number_of_batteries;bat++) {
+      allremain += i->remain[bat];
+      allcapacity += cur_acpi_infos.currcap[bat];
+    }
+
+    cur_acpi_infos.low=0;
+    if(allcapacity>0) {
+      if(((float)allremain/(float)allcapacity)*100<alarm_level) {
+        cur_acpi_infos.low=1;
+      }
     }
   }
 
-  DEBUGSTRING("MID acpi_read()\n")
-  firstRateElem = ((*firstRateElem).next);
   free(buf);
-  DEBUGSTRING("END acpi_read()\n")
-  return retcode;
+  return ret;
 }
 #endif
