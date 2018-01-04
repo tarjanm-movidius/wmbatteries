@@ -1,0 +1,10 @@
+doc/Makefile
+src/.deps
+src/Makefile
+src/*.o
+src/wmbatteries
+Makefile
+config.h
+config.log
+config.status
+stamp-h1
