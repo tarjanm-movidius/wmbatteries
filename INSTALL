@@ -1,0 +1,10 @@
+Since your reading this, you are probably done with the tar zxvf part.
+
+1. ./configure
+2. make
+3. become root
+4. make install
+5. wmbatteries
+
+pretty easy. See the man page (man wmbatteries) for invocation and
+configuration information.
