@@ -259,7 +259,7 @@ int main(int argc, char **argv) {
       case ButtonPress:
         switch (event.xbutton.button) {
         case 1: switch_light(); break;
-        case 3: mode=!mode; show=1; break;
+        case 3: mode=!mode; toggle_timeout = togglespeed; show=1; break;
         case 4: /* scroll up */ break;
         case 5: /* scroll dn */ break;
         default: break;
