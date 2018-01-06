@@ -337,6 +337,12 @@ void init_stats(AcpiInfos *k) {
         }
         if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL="))) {
           sscanf(ptr+25, "%ld", &k->currcap[i]);
+          if((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_NOW="))) {
+            sscanf(ptr+24, "%ld", &tmp);
+            if (tmp > k->currcap[i]) k->currcap[i] = tmp;
+          } else {
+            DPRINTF("POWER_SUPPLY_ENERGY_NOW not found in '%s'\n", uevent_files[i])
+          }
           if(bat_status[i]==BAT_OK) {
             if((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL_DESIGN="))) {
               sscanf(ptr+32, "%ld", &tmp);
@@ -757,7 +763,7 @@ static void draw_pcgraph(AcpiInfos infos) {
   for(bat=0;bat<number_of_batteries;bat++) {
     width = (infos.battery_percentage[bat]*32)/100;
     dockapp_copyarea(parts, pixmap, 0, 58+light_offset, width, 5, 5, 26+6*bat);
-    if(infos.battery_percentage[bat] == 100) { // don't display leading 0
+    if(infos.battery_percentage[bat] >= 100) { // don't display leading 0
       dockapp_copyarea(parts, pixmap, 4*(infos.battery_percentage[bat]/100), 126+light_offset, 3, 5, 38, 26+6*bat);
     }
     if(infos.battery_percentage[bat] > 9) { //don't display leading 0
@@ -998,6 +1004,8 @@ int acpi_read(AcpiInfos *i) {
           sscanf(ptr+24, "%ld", &tmp);
           if (i->remain[bat] != tmp) {
             i->remain[bat] = tmp;
+            i->battery_percentage[bat] = (((float)(i->remain[bat])*100.0f)/(float)cur_acpi_infos.currcap[bat]);
+            if (i->battery_percentage[bat] > 100) i->battery_percentage[bat] = 100;
             ret = 1;
           }
         } else {
@@ -1007,7 +1015,6 @@ int acpi_read(AcpiInfos *i) {
         DPRINTF("fread(%s) error\n", uevent_files[bat])
       }
       fclose(fd);
-      i->battery_percentage[bat] = (((float)(i->remain[bat])*100.0f)/(float)cur_acpi_infos.currcap[bat]);
     } else {
       DPRINTF("fopen(%s) error\n", uevent_files[bat])
     }
