@@ -871,7 +871,7 @@ static void parse_arguments(int argc, char **argv) {
 
 static void print_help(char *prog) {
   printf("Usage: %s [OPTIONS]\n"
-   "%s - Window Maker mails monitor dockapp\n"
+   "%s - Window Maker battery monitor dockapp\n"
    "  -d,  --display <string>        display to use\n"
    "  -bl, --backlight               turn on backlight\n"
    "  -lc, --light-color <string>    backlight colour (rgb:6E/C6/3B is default)\n"
@@ -1004,8 +1004,8 @@ int acpi_read(AcpiInfos *i) {
           sscanf(ptr+24, "%ld", &tmp);
           if (i->remain[bat] != tmp) {
             i->remain[bat] = tmp;
-            i->battery_percentage[bat] = (((float)(i->remain[bat])*100.0f)/(float)cur_acpi_infos.currcap[bat]);
-            if (i->battery_percentage[bat] > 100) i->battery_percentage[bat] = 100;
+            if (tmp > i->currcap[bat]) i->currcap[bat] = tmp;
+            i->battery_percentage[bat] = ((float)(i->remain[bat]) * 100.0f / (float)i->currcap[bat]);
             ret = 1;
           }
         } else {
