@@ -1,3 +1,10 @@
+Dependencies:
+
+libxext
+libxpm
+
+Installation:
+
 Since you're reading this, you are probably done with the tar zxvf part.
 
 1. ./configure
