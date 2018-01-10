@@ -39,7 +39,7 @@ Below, current capacity of availible batteries is displayed in percent and in fo
 In the bottom half, there are 4 indicators: The left is shown when on AC.
 The two battery symbols in the middle are shown when the corresponding
 battery is discharging, and animated if it is charging.
-The animation speed may be set with the -as option.
+The animation speed may be set with the -s option.
 On the right there is an indicator which is displayed when the remaining capacity
 of all batteries is less than a certain (default:15) percentage of the
 maximum capacity of all batteries.
@@ -100,6 +100,9 @@ command to launch each time there is alarm
 .TP
 .B \-s,  \-\-suspend <string>
 set command for acpi suspend
+.TP
+.B \-S,  \-\-standby <string>
+set command for acpi standby
 .TP
 .B \-m,  \-\-mode [t|r|s]
 set mode for the lower row (=s),
