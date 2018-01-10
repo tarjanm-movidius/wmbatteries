@@ -95,7 +95,6 @@ Pixmap parts;
 Pixmap mask;
 static char     *display_name     = "";
 static char     light_color[256]  = "";   /* back-light color */
-char            tmp_string[256];
 static char     *config_file      = NULL; /* name of configfile */
 static unsigned update_interval   = UPDATE_INTERVAL;
 static light    backlight         = LIGHTOFF;
@@ -104,7 +103,6 @@ static unsigned alarm_level       = ALARM_LEVEL;
 static unsigned alarm_level_temp  = ALARM_TEMP*10;
 static char     *notif_cmd        = NULL;
 static char     *suspend_cmd      = NULL;
-static char     *standby_cmd      = NULL;
 static int      mode              = STATMODE;
 static int      togglemode        = TOGGLEMODE;
 static int      togglespeed       = TOGGLESPEED;
@@ -398,7 +396,7 @@ void init_stats(AcpiInfos *k) {
 /* called by timer */
 static int update() {
   static light pre_backlight;
-  static Bool in_alarm_mode = False;
+  static Bool in_alarm_mode = False, suspended = False;
   int ret;
 
   /* get current battery usage in percent */
@@ -410,6 +408,10 @@ static int update() {
       pre_backlight = backlight;
       my_system(notif_cmd);
     }
+    if (!suspended && ((cur_acpi_infos.low>1) || (cur_acpi_infos.thermal_temp > alarm_level_temp+5))) {
+      suspended = True;
+      my_system(suspend_cmd);
+    }
     if (alarm_blink || !in_alarm_mode) {
       switch_light();
       in_alarm_mode = True;
@@ -417,6 +419,7 @@ static int update() {
     }
   } else {
     if (in_alarm_mode) {
+      suspended = False;
       in_alarm_mode = False;
       if (backlight != pre_backlight) {
         switch_light();
@@ -488,6 +491,26 @@ static void parse_config_file(char *config) {
             } else {
               alarm_blink = False;
             }
+          }
+        }
+
+        if(!strcmp(item,"notify")) {
+          if (!((notif_cmd = (char*)malloc(256)))) exit(-1);
+          strcpy(notif_cmd,value);
+          while ((value = strtok( NULL, "\t \n\r" )))
+          {
+            strcat(notif_cmd, " ");
+            strcat(notif_cmd, value);
+          }
+        }
+
+        if(!strcmp(item,"suspend")) {
+          if (!((suspend_cmd = (char*)malloc(256)))) exit(-1);
+          strcpy(suspend_cmd,value);
+          while ((value = strtok( NULL, "\t \n\r" )))
+          {
+            strcat(suspend_cmd, " ");
+            strcat(suspend_cmd, value);
           }
         }
 
@@ -825,9 +848,11 @@ static void parse_arguments(int argc, char **argv) {
     } else if (!strcmp(argv[i], "--broken-wm") || !strcmp(argv[i], "-bw")) {
       dockapp_isbrokenwm = True;
     } else if (!strcmp(argv[i], "--notify") || !strcmp(argv[i], "-n")) {
+      if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
       notif_cmd = argv[i + 1];
       i++;
     } else if (!strcmp(argv[i], "--suspend") || !strcmp(argv[i], "-s")) {
+      if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
       suspend_cmd = argv[i + 1];
       i++;
     } else if (!strcmp(argv[i], "--togglespeed") || !strcmp(argv[i], "-ts")) {
@@ -856,10 +881,6 @@ static void parse_arguments(int argc, char **argv) {
       else if(character=='t') mode=TEMP;
       else if(character=='r') mode=RATE;
       i++;
-    } else if (!strcmp(argv[i], "--standby") || !strcmp(argv[i], "-S")) {
-      if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
-      standby_cmd = argv[i + 1];
-      i++;
     } else {
       fprintf(stderr, "%s: unrecognized option '%s'\n", argv[0], argv[i]);
       print_help(argv[0]);
@@ -884,7 +905,6 @@ static void print_help(char *prog) {
    "  -bw, --broken-wm               activate broken window manager fix\n"
    "  -n,  --notify <string>         command to launch when alarm is on\n"
    "  -s,  --suspend <string>        set command for acpi suspend\n"
-   "  -S,  --standby <string>        set command for acpi standby\n"
    "  -m,  --mode [t|r|s]            set mode for the lower row (=%c), \n"
    "                                 t=temperature, r=current rate, s=toggle\n"
    "  -ts  --togglespeed <int>       set toggle speed in msec (=%u)\n"
@@ -1061,8 +1081,9 @@ int acpi_read(AcpiInfos *i) {
 
     cur_acpi_infos.low=0;
     if(allcapacity>0) {
-      if(((float)allremain/(float)allcapacity)*100<alarm_level) {
-        cur_acpi_infos.low=1;
+      if(((float)allremain / (float)allcapacity * 100.0f) < alarm_level) {
+        cur_acpi_infos.low = 1;
+        if((float)allremain / (float)allcapacity < 0.05f) cur_acpi_infos.low = 2;
       }
     }
   }

@@ -39,3 +39,9 @@ alarm		= 	15
 
 #alarm_blink	=	[yes|no|true|false]
 alarm_blink	=	yes
+
+#notify		=	<string> // command to run at alarm level
+notify 		=	mpg123 -q /path/to/alarm.mp3
+
+#suspend		=	<string> // command to run at critical level
+suspend 		=	sudo suspend
