@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
   unsigned  cns_state = 0;
   struct    sigaction sa;
   long      timeout;
-  int       charging;
+  int       charging = 0;
 
   sa.sa_handler = SIG_IGN;
 #ifdef SA_NOCLDWAIT
@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
   //acpi_read(&cur_acpi_infos);
   //update();
   dockapp_open_window(display_name, PACKAGE, SIZE, SIZE, argc, argv);
-  dockapp_set_eventmask(ButtonPressMask|KeymapStateMask);
+  dockapp_set_eventmask(ButtonPressMask);
 
   if (strcmp(light_color,"")) {
     colors[0].pixel = dockapp_getcolor(light_color);
@@ -239,10 +239,6 @@ int main(int argc, char **argv) {
   int show = 0;
   /* Main loop */
   while (1) {
-    if (cur_acpi_infos.battery_status[0]==CHARGING || cur_acpi_infos.battery_status[1]==CHARGING)
-      charging = 1;
-    else
-      charging = 0;
 #if CAPS_NUM_UPD_SPD > 0
     timeout = CAPS_NUM_UPD_SPD;
     if (update_timeout<timeout)
@@ -262,10 +258,6 @@ int main(int argc, char **argv) {
         case 5: /* scroll dn */ break;
         default: break;
         }
-        break;
-      case KeymapNotify:
-        draw_all();
-        dockapp_copy2window(pixmap);
         break;
       default: break;
       }
@@ -291,6 +283,10 @@ int main(int argc, char **argv) {
       if(update_timeout<5) {
         update_timeout += update_interval;
         if (update()) show = 1;
+        if (cur_acpi_infos.battery_status[0]==CHARGING || cur_acpi_infos.battery_status[1]==CHARGING)
+          charging = 1;
+        else
+          charging = 0;
       }
       XkbGetIndicatorState(display, XkbUseCoreKbd, &cns_state);
       if(cns_state != cns_oldstate) {
