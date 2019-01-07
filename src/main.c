@@ -93,6 +93,8 @@ Pixmap backdrop_on;
 Pixmap backdrop_off;
 Pixmap parts;
 Pixmap mask;
+static char     chgnow_id[30]     = "POWER_SUPPLY_ENERGY_NOW";
+static char     pwrnow_id[30]     = "POWER_SUPPLY_POWER_NOW";
 static char     *display_name     = "";
 static char     light_color[256]  = "";   /* back-light color */
 static char     *config_file      = NULL; /* name of configfile */
@@ -329,16 +331,23 @@ void init_stats(AcpiInfos *k) {
         } else {
           DPRINTF("POWER_SUPPLY_PRESENT not found in '%s'\n", uevent_files[i])
         }
-        if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL="))) {
+        if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL=")) \
+         || (ptr = strstr(buf,"POWER_SUPPLY_CHARGE_FULL="))) {
           sscanf(ptr+25, "%ld", &k->currcap[i]);
-          if((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_NOW="))) {
+
+          if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_NOW="))) {
             sscanf(ptr+24, "%ld", &tmp);
-            if (tmp > k->currcap[i]) k->currcap[i] = tmp;
+          } else if ((ptr = strstr(buf,"POWER_SUPPLY_CHARGE_NOW="))) {
+            strcpy(chgnow_id, "POWER_SUPPLY_CHARGE_NOW");
+            sscanf(ptr+24, "%ld", &tmp);
           } else {
             DPRINTF("POWER_SUPPLY_ENERGY_NOW not found in '%s'\n", uevent_files[i])
+            tmp = 0;
           }
+          if (tmp > k->currcap[i]) k->currcap[i] = tmp;
           if(bat_status[i]==BAT_OK) {
-            if((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL_DESIGN="))) {
+            if ((ptr = strstr(buf,"POWER_SUPPLY_ENERGY_FULL_DESIGN=")) \
+             || (ptr = strstr(buf,"POWER_SUPPLY_CHARGE_FULL_DESIGN="))) {
               sscanf(ptr+32, "%ld", &tmp);
               printf("BAT%d OK, %0.1f%% performance\n", i, (float)k->currcap[i] * 100.0f / (float)tmp);
             } else {
@@ -351,6 +360,9 @@ void init_stats(AcpiInfos *k) {
         }
         if ((ptr = strstr(buf,"POWER_SUPPLY_POWER_NOW="))) {
           sscanf(ptr+23, "%ld", &k->rate[i]);
+        } else if ((ptr = strstr(buf,"POWER_SUPPLY_CURRENT_NOW="))) {
+          strcpy(pwrnow_id, "POWER_SUPPLY_CURRENT_NOW");
+          sscanf(ptr+25, "%ld", &k->rate[i]);
         } else {
           DPRINTF("POWER_SUPPLY_POWER_NOW not found in '%s'\n", uevent_files[i])
         }
@@ -1011,13 +1023,15 @@ int acpi_read(AcpiInfos *i) {
         } else {
           DPRINTF("POWER_SUPPLY_STATUS not found\n")
         }
-        if ((ptr = strstr(ptr,"POWER_SUPPLY_POWER_NOW"))) {
-          sscanf(ptr+23, "%ld", &i->ratehist[bat][rhptr]);
+        if ((ptr = strstr(ptr, pwrnow_id))) {
+          ptr = strstr(ptr, "=");
+          sscanf(ptr+1, "%ld", &i->ratehist[bat][rhptr]);
         } else {
           DPRINTF("POWER_SUPPLY_POWER_NOW not found (order?)\n")
         }
-        if ((ptr = strstr(ptr,"POWER_SUPPLY_ENERGY_NOW"))) {
-          sscanf(ptr+24, "%ld", &tmp);
+        if ((ptr = strstr(ptr, chgnow_id))) {
+          ptr = strstr(ptr, "=");
+          sscanf(ptr+1, "%ld", &tmp);
           if (i->remain[bat] != tmp) {
             i->remain[bat] = tmp;
             if (tmp > i->currcap[bat]) i->currcap[bat] = tmp;
