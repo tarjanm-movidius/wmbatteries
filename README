@@ -1,7 +1,8 @@
-this software comes with no warranty.
-use it on your own risk.
+WMBatteries is a battery and CPU temperature
+monitoring dockapp with full sysfs support.
+Forked off the long abandoned version originally
+written by Florian Krohs
+<florian.krohs@informatik.uni-oldenburg.de>
 
-if you have problems or any syggestions, feel free to contact me
-
-Florian Krohs <florian.krohs@informatik.uni-oldenburg.de>
-
+This software comes with no warranty,
+Use it at your own risk.
