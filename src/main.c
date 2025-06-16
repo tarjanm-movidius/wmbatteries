@@ -31,6 +31,10 @@
 # include "config.h"
 #endif
 
+#ifdef __STRICT_ANSI__
+# define _XOPEN_SOURCE
+#endif
+
 #include "files.h"
 #include "defaults.h"
 #include "dockapp.h"
@@ -42,7 +46,7 @@
 #include <errno.h>
 #include <string.h>
 
-#ifdef linux
+#ifdef __linux
 # include <sys/stat.h>
 # include <X11/XKBlib.h>
 #endif
@@ -117,7 +121,7 @@ static char     ac_state[256]     = AC_STATE_FILE;
 static int      history_size      = RATE_HISTORY;
 static int      blink_pos         = 0;
 
-#ifdef linux
+#ifdef __linux
 # ifndef ACPI_32_BIT_SUPPORT
 #  define ACPI_32_BIT_SUPPORT      0x0002
 # endif
@@ -144,7 +148,7 @@ static int  my_system (char *cmd);
 static void blink_batt();
 static void draw_all();
 
-#ifdef linux
+#ifdef __linux
 int acpi_read(AcpiInfos *i);
 void init_stats(AcpiInfos *k);
 #endif
@@ -181,7 +185,7 @@ int main(int argc, char **argv) {
 
   /* Check for ACPI support */
   if (!acpi_exists()) {
-#ifdef linux
+#ifdef __linux
     fprintf(stderr, "No ACPI support in kernel\n");
 #else
     fprintf(stderr, "Unable to access ACPI info\n");
@@ -191,8 +195,8 @@ int main(int argc, char **argv) {
 
   /* Initialize Application */
   init_stats(&cur_acpi_infos);
-  //acpi_read(&cur_acpi_infos);
-  //update();
+  /*acpi_read(&cur_acpi_infos); */
+  /*update(); */
   dockapp_open_window(display_name, PACKAGE, SIZE, SIZE, argc, argv);
   dockapp_set_eventmask(ButtonPressMask);
 
@@ -382,7 +386,7 @@ void init_stats(AcpiInfos *k) {
 
   DPRINTF("D: %i batter%s found in system\n", number_of_batteries, number_of_batteries==1 ? "y" : "ies");
 
-  // initialising history buffer
+  /* initialising history buffer */
   if ((k->ratehist[0] = (long*)malloc(history_size * sizeof(long))) == NULL) exit(-1);
   for (i=0; i<history_size; i++) k->ratehist[0][i] = k->rate[0];
   if (number_of_batteries == 2) {
@@ -472,7 +476,7 @@ static void parse_config_file(char *config) {
     }
   }
 
-  if(fd!=NULL) { // some config file was found, try parsing
+  if(fd!=NULL) { /* some config file was found, try parsing */
     while( fgets( buf, 255, fd ) != NULL ) {
 
       item = strtok( buf, "\t =\n\r" ) ;
@@ -617,8 +621,8 @@ static void draw_locks() {
   unsigned int states;
 
   XkbGetIndicatorState(display, XkbUseCoreKbd, &states);
-  if(states & 0x1) dockapp_copyarea(parts, pixmap, 0, 58, 7, 5, 49, 46);  // CAPS
-  if(states & 0x2) dockapp_copyarea(parts, pixmap, 0, 58, 7, 5, 49, 51);  // NUM
+  if(states & 0x1) dockapp_copyarea(parts, pixmap, 0, 58, 7, 5, 49, 46);  /* CAPS */
+  if(states & 0x2) dockapp_copyarea(parts, pixmap, 0, 58, 7, 5, 49, 51);  /* NUM */
 }
 #endif
 
@@ -746,10 +750,10 @@ static void draw_temp(AcpiInfos infos) {
   if (temp > 999) dockapp_copyarea(parts, pixmap, (temp/1000)*5 + light_offset, 40, 5, 9, 10, 46);
   dockapp_copyarea(parts, pixmap, ((temp/100) % 10)*5 + light_offset, 40, 5, 9, 16, 46);
   dockapp_copyarea(parts, pixmap, ((temp/10) % 10)*5 + light_offset, 40, 5, 9, 22, 46);
-  dockapp_copyarea(parts, pixmap, 0, 58, 2, 3, 28, 53);  //.
+  dockapp_copyarea(parts, pixmap, 0, 58, 2, 3, 28, 53);  /*. */
   dockapp_copyarea(parts, pixmap, (temp%10)*5 + light_offset, 40, 5, 9, 31, 46);
-  dockapp_copyarea(parts, pixmap, 10 + light_offset, 49, 5, 9, 37, 46);  //o
-  dockapp_copyarea(parts, pixmap, 15 + light_offset, 49, 5, 9, 43, 46);  //C
+  dockapp_copyarea(parts, pixmap, 10 + light_offset, 49, 5, 9, 37, 46);  /*o */
+  dockapp_copyarea(parts, pixmap, 15 + light_offset, 49, 5, 9, 43, 46);  /*C */
 
 }
 
@@ -778,8 +782,8 @@ static void draw_rate(AcpiInfos infos) {
   dockapp_copyarea(parts, pixmap, ((rate/10)%10)*5 + light_offset, 40, 5, 9, 23, 46);
   dockapp_copyarea(parts, pixmap, (rate%10)*5 + light_offset, 40, 5, 9, 29, 46);
 
-  dockapp_copyarea(parts, pixmap, 0 + light_offset, 49, 5, 9, 36, 46);  //m
-  dockapp_copyarea(parts, pixmap, 5 + light_offset, 49, 5, 9, 42, 46);  //W
+  dockapp_copyarea(parts, pixmap, 0 + light_offset, 49, 5, 9, 36, 46);  /*m */
+  dockapp_copyarea(parts, pixmap, 5 + light_offset, 49, 5, 9, 42, 46);  /*W */
 
 }
 
@@ -794,10 +798,10 @@ static void draw_pcgraph(AcpiInfos infos) {
   for(bat=0;bat<number_of_batteries;bat++) {
     width = (infos.battery_percentage[bat]*32)/100;
     dockapp_copyarea(parts, pixmap, 0, 58+light_offset, width, 5, 5, 26+6*bat);
-    if(infos.battery_percentage[bat] >= 100) { // don't display leading 0
+    if(infos.battery_percentage[bat] >= 100) { /* don't display leading 0 */
       dockapp_copyarea(parts, pixmap, 4*(infos.battery_percentage[bat]/100), 126+light_offset, 3, 5, 38, 26+6*bat);
     }
-    if(infos.battery_percentage[bat] > 9) { //don't display leading 0
+    if(infos.battery_percentage[bat] > 9) { /*don't display leading 0 */
       dockapp_copyarea(parts, pixmap, 4*((infos.battery_percentage[bat]%100)/10), 126+light_offset, 3, 5, 42, 26+6*bat);
     }
     dockapp_copyarea(parts, pixmap, 4*(infos.battery_percentage[bat]%10), 126+light_offset, 3, 5, 46, 26+6*bat);
@@ -811,14 +815,14 @@ static void parse_arguments(int argc, char **argv) {
   int integer;
   char character;
 
-  for (i = 1; i < argc; i++) { // first search for config file option
+  for (i = 1; i < argc; i++) { /* first search for config file option */
     if (!strcmp(argv[i], "--config") || !strcmp(argv[i], "-c")) {
       if (argc == i + 1) { fprintf(stderr, "%s: error parsing argument for option %s\n", argv[0], argv[i]); exit(1); }
       config_file = argv[i + 1];
       i++;
     }
   }
-  // parse config file before other command line options, to allow overriding
+  /* parse config file before other command line options, to allow overriding */
   parse_config_file(config_file);
   for (i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
@@ -955,7 +959,7 @@ static int my_system (char *cmd) {
 }
 
 
-#ifdef linux
+#ifdef __linux
 
 int acpi_read(AcpiInfos *i) {
   FILE      *fd;
