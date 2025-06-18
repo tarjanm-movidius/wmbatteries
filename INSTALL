@@ -7,10 +7,10 @@ Installation:
 
 Since you're reading this, you are probably done with the tar zxvf part.
 
-1. ./configure
-2. make
-3. become root
-4. make install
+1. ./autogen.sh
+2. ./configure
+3. make -j2
+4. sudo make install
 5. wmbatteries
 
 pretty easy. See the man page (man wmbatteries) for invocation and
